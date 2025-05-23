@@ -38,26 +38,13 @@ A interface foi construída com **PySide6**, oferecendo uma experiência fluida:
 
 ### 1. Clone o repositório
 
-```bash
 git clone https://github.com/seu-usuario/protocols_synsuite.git
 cd protocols_synsuite
 
 3. Instale as dependências
-bash
-Copiar
-Editar
 pip install -r requirements.txt
-Se você ainda não criou o requirements.txt, pode fazer isso com:
-
-bash
-Copiar
-Editar
-pip freeze > requirements.txt
 
 ▶️ Como Executar
-bash
-Copiar
-Editar
 python seu_arquivo.py
 Será aberta uma janela solicitando o login no SynSuite. Após o login, a extração é iniciada automaticamente.
 
