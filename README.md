@@ -41,7 +41,12 @@ A interface foi construída com **PySide6**, oferecendo uma experiência fluida:
 git clone https://github.com/seu-usuario/protocols_synsuite.git
 cd protocols_synsuite
 
-3. Instale as dependências
+### 2. Crie um ambiente virtual (opcional, mas recomendado)
+python -m venv venv
+source venv/bin/activate   # Linux/macOS
+venv\Scripts\activate.bat  # Windows
+
+### 3. Instale as dependências
 pip install -r requirements.txt
 
 ▶️ Como Executar
