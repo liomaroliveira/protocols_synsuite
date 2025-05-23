@@ -5,7 +5,7 @@ import pandas as pd
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout,
     QWidget, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
-    QTableWidget, QTableWidgetItem, QFileDialog
+    QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog
 )
 from PySide6.QtCore import Qt, QTimer
 
@@ -36,7 +36,7 @@ class LoginDialog(QDialog):
 class MainWindow(QMainWindow):
     def __init__(self, usuario, senha):
         super().__init__()
-        self.setWindowTitle("Extrator de Protocolos SynSuite")
+        self.setWindowTitle("Extrator de Protocolos da Equipe - SynSuite")
         self.usuario = usuario
         self.senha = senha
         self.protocol_titles = []
@@ -85,53 +85,70 @@ class MainWindow(QMainWindow):
             "Referer": "https://synsuite.teninternet.com.br/assignments"
         }
 
-        for start in range(0, 10000, 25):
-            payload_data = {
-                "sEcho": 1,
-                "iColumns": 7,
-                "sColumns": "",
-                "iDisplayStart": start,
-                "iDisplayLength": 25,
-                "mDataProp_0": "Assignment.id",
-                "mDataProp_1": "Assignment.title",
-                "mDataProp_2": "Requestor.name",
-                "mDataProp_3": "Assignment.progress",
-                "mDataProp_4": "Assignment.final_date",
-                "mDataProp_5": "Assignment.assignment_origin",
-                "mDataProp_6": "AssignmentIncident.protocol",
-                "datatable": json.dumps({
-                    "fields": [
-                        "Assignment.id", "Assignment.title", "Requestor.name",
-                        "Assignment.progress", "Assignment.final_date",
-                        "Assignment.priority", "Assignment.assignment_origin",
-                        "Requestor.name_2", "Assignment.description",
-                        "Assignment.assignment_type", "Assignment.date_situation",
-                        "Assignment.has_children", "Assignment.has_product_acquisition_requests",
-                        "Assignment.blockTask", "Assignment.responsible_id",
-                        "Assignment.client_projects", "Assignment.lawsuit_id",
-                        "Assignment.time_remaining", "Assignment.days_remaining",
-                        "Assignment.weight", "Assignment.in_execution",
-                        "AssignmentIncident.team_manager_id", "AssignmentIncident.incident_status_id",
-                        "AssignmentIncident.protocol", "AssignmentIncident.client_id",
-                        "AssignmentIncidentPerson.name", "AssignmentIncidentPerson.name_2",
-                        "Assignment.info_path", "Instance.title",
-                        "Assignment.instance_root_title", "Assignment.parentOriginatesFromCrm",
-                        "Assignment.is_omnichannel", "IncidentType.solicitation_type"
-                    ],
-                    "searchFields": [
-                        "Assignment.description", "Assignment.info_path", "Requestor.name_2",
-                        "Responsible.name_2", "Responsible.name", "Client.name_2", "Client.name",
-                        "Person.name_2", "Person.name", "Instance.title", "Assignment.instance_root_title"
-                    ],
-                    "conditions": {
-                        "Assignment.progress <": 100,
-                        "Assignment.task": 1,
-                        "Assignment.deleted": False,
-                        "Assignment.assignment_origin": 5,
-                        "filter_team": 1
-                    }
-                })
-            }
+        fields = [
+            "Assignment.id", "Assignment.title", "Responsible.name", "Assignment.progress",
+            "Assignment.final_date", "Assignment.priority", "Assignment.assignment_origin",
+            "Requestor.name_2", "Assignment.description", "Assignment.assignment_type",
+            "Assignment.date_situation", "Assignment.has_children",
+            "Assignment.has_product_acquisition_requests", "Assignment.blockTask",
+            "Assignment.responsible_id", "Assignment.client_projects", "Assignment.lawsuit_id",
+            "Assignment.time_remaining", "Assignment.days_remaining", "Assignment.weight",
+            "Assignment.in_execution", "Requestor.name", "AssignmentIncident.team_manager_id",
+            "AssignmentIncident.incident_status_id", "AssignmentIncident.protocol",
+            "AssignmentIncident.client_id", "Responsible.name_2", "Team.title",
+            "Assignment.is_omnichannel", "IncidentType.solicitation_type"
+        ]
+
+        search_fields = [
+            "Assignment.description", "Team.title", "Requestor.name_2", "Responsible.name_2",
+            "Responsible.name", "Client.name_2", "Client.name", "Person.name_2", "Person.name"
+        ]
+
+        base_conditions = {
+            "Assignment.task": 1,
+            "Assignment.deleted": False,
+            "Assignment.assignment_origin": 5,
+            "Assignment.progress <": 100,
+            "filter_team": 1
+        }
+
+        payload_teste = {
+            "sEcho": 1,
+            "iColumns": 7,
+            "sColumns": "",
+            "iDisplayStart": 0,
+            "iDisplayLength": 1,
+            "mDataProp_0": "Assignment.id",
+            "mDataProp_1": "Assignment.title",
+            "mDataProp_2": "Responsible.name",
+            "mDataProp_3": "Assignment.progress",
+            "mDataProp_4": "Assignment.final_date",
+            "mDataProp_5": "Assignment.assignment_origin",
+            "mDataProp_6": "AssignmentIncident.protocol",
+            "datatable": json.dumps({
+                "fields": fields,
+                "searchFields": search_fields,
+                "conditions": base_conditions
+            })
+        }
+
+        res_teste = session.post(DATA_URL, headers=headers_data, data=payload_teste)
+        res_json = res_teste.json()
+        total_registros = int(res_json.get("iTotalDisplayRecords", 0))
+
+        passo = 25
+        total_passos = (total_registros + passo - 1) // passo
+
+        progress_dialog = QProgressDialog("Carregando protocolos da equipe...", "Cancelar", 0, total_passos, self)
+        progress_dialog.setWindowTitle("Aguarde")
+        progress_dialog.setWindowModality(Qt.ApplicationModal)
+        progress_dialog.setAutoClose(True)
+        progress_dialog.show()
+
+        for i, start in enumerate(range(0, total_registros, passo)):
+            payload_data = payload_teste.copy()
+            payload_data["iDisplayStart"] = start
+            payload_data["iDisplayLength"] = passo
 
             response = session.post(DATA_URL, headers=headers_data, data=payload_data)
             data = response.json()
@@ -141,27 +158,24 @@ class MainWindow(QMainWindow):
 
             for item in data.get("aaData", []):
                 try:
-                    title = item["Assignment"]["title"]
-                    title_parts = title.split(" - ", 1)
-
-                    if len(title_parts) < 2:
-                        continue  # ignora se não houver parte 1
-
-                    if "DESCONTO" not in title_parts[1].upper():
-                        continue  # ignora se não contiver a palavra "DESCONTO"
+                    title = item["Assignment"].get("title", "")
+                    parts = title.split(" - ", 2)
+                    if len(parts) < 2 or "DESCONTO" not in parts[1].upper():
+                        continue
 
                     protocol = item["AssignmentIncident"].get("protocol", "")
                     requester = item["Requestor"].get("name", "")
                     final_date = item["Assignment"].get("final_date", "")
-                    self.protocol_titles.append([
-                        protocol, title, requester, final_date
-                    ])
+                    self.protocol_titles.append([protocol, title, requester, final_date])
                 except KeyError as e:
                     print(f"[!] Campo ausente: {e}")
                     continue
 
+            progress_dialog.setValue(i + 1)
+            QApplication.processEvents()
+
         if not self.protocol_titles:
-            QMessageBox.information(self, "Resultado", "Nenhum protocolo encontrado.")
+            QMessageBox.information(self, "Resultado", "Nenhum protocolo encontrado com critério 'DESCONTO'.")
             return
 
         self.populate_table()
