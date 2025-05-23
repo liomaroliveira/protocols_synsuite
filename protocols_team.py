@@ -142,6 +142,14 @@ class MainWindow(QMainWindow):
             for item in data.get("aaData", []):
                 try:
                     title = item["Assignment"]["title"]
+                    title_parts = title.split(" - ", 1)
+
+                    if len(title_parts) < 2:
+                        continue  # ignora se não houver parte 1
+
+                    if "DESCONTO" not in title_parts[1].upper():
+                        continue  # ignora se não contiver a palavra "DESCONTO"
+
                     protocol = item["AssignmentIncident"].get("protocol", "")
                     requester = item["Requestor"].get("name", "")
                     final_date = item["Assignment"].get("final_date", "")
