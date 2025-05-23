@@ -67,3 +67,7 @@ Conexão com a internet
 A extração é feita via requests.Session, simulando os headers e payloads esperados pela interface SynSuite.
 
 Os dados são buscados em pacotes de 25 registros por vez até atingir o limite ou os dados se esgotarem.
+
+🧑‍💻 Autor
+Liomar Oliveira
+Desenvolvedor de Software
