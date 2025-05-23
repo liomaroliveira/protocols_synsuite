@@ -108,13 +108,13 @@ class MainWindow(QMainWindow):
                         "Assignment.assignment_type", "Assignment.date_situation",
                         "Assignment.has_children", "Assignment.has_product_acquisition_requests",
                         "Assignment.blockTask", "Assignment.responsible_id",
-                        "Assignment.type_progress", "Assignment.client_projects",
-                        "Assignment.corresponding_parent_id", "Assignment.time_remaining",
-                        "Assignment.days_remaining", "Assignment.weight",
+                        "Assignment.client_projects", "Assignment.lawsuit_id",
+                        "Assignment.time_remaining", "Assignment.days_remaining",
+                        "Assignment.weight", "Assignment.in_execution",
                         "AssignmentIncident.team_manager_id", "AssignmentIncident.incident_status_id",
                         "AssignmentIncident.protocol", "AssignmentIncident.client_id",
                         "AssignmentIncidentPerson.name", "AssignmentIncidentPerson.name_2",
-                        "Assignment.info_path", "Assignment.lawsuit_id", "Instance.title",
+                        "Assignment.info_path", "Instance.title",
                         "Assignment.instance_root_title", "Assignment.parentOriginatesFromCrm",
                         "Assignment.is_omnichannel", "IncidentType.solicitation_type"
                     ],
@@ -127,9 +127,8 @@ class MainWindow(QMainWindow):
                         "Assignment.progress <": 100,
                         "Assignment.task": 1,
                         "Assignment.deleted": False,
-                        "Assignment.in_execution": None,
-                        "Assignment.assignment_origin NOT": [96, 95, 30, 502],
-                        "Assignment.assignment_origin": 5
+                        "Assignment.assignment_origin": 5,
+                        "filter_team": 1
                     }
                 })
             }
