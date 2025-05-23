@@ -1,6 +1,6 @@
 # 📄 Extrator de Protocolos - SynSuite
 
-Uma aplicação desktop desenvolvida em **Python + PySide6** para realizar login automático no sistema [SynSuite](https://synsuite.teninternet.com.br), extrair protocolos de atendimento com base em filtros específicos e exportá-los diretamente para uma planilha Excel (`.xlsx`).
+Uma aplicação desktop desenvolvida em **Python + PySide6** para realizar login automático no sistema SynSuite, extrair protocolos de atendimento com base em filtros específicos e exportá-los diretamente para uma planilha Excel (`.xlsx`).
 
 ---
 
