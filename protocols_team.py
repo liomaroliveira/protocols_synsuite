@@ -6,10 +6,9 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout,
     QWidget, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog,
-    QTextEdit, QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox
+    QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox, QDateEdit
 )
-from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QTextDocument
+from PySide6.QtCore import Qt, QTimer, QDate
 
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
@@ -18,49 +17,76 @@ class LoginDialog(QDialog):
         self.user_input = QLineEdit()
         self.pass_input = QLineEdit()
         self.pass_input.setEchoMode(QLineEdit.Password)
-
         layout = QFormLayout()
         layout.addRow("Usuário:", self.user_input)
         layout.addRow("Senha:", self.pass_input)
-
         buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         buttons.accepted.connect(self.accept)
         buttons.rejected.connect(self.reject)
         layout.addWidget(buttons)
-
         self.setLayout(layout)
 
     def get_credentials(self):
         return self.user_input.text(), self.pass_input.text()
 
-
 class ConnectionHistoryDialog(QDialog):
-    def __init__(self, history_data, parent=None):
+    def __init__(self, session, tag_ids, parent=None):
         super().__init__(parent)
+        self.session = session
+        self.tag_ids = tag_ids
         self.setWindowTitle("Histórico de Conexão")
+        self.resize(800, 500)
         layout = QVBoxLayout(self)
-
-        # Create table
-        table = QTableWidget()
-        headers = ["Protocolo", "Título", "Solicitante", "Data Final"]
-        table.setColumnCount(len(headers))
-        table.setHorizontalHeaderLabels(headers)
-        table.setRowCount(len(history_data))
-
-        for row_idx, record in enumerate(history_data):
-            for col_idx, value in enumerate(record[:4]):
-                item = QTableWidgetItem(str(value))
-                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                table.setItem(row_idx, col_idx, item)
-
-        table.resizeColumnsToContents()
-        layout.addWidget(table)
-
-        # Add close button
+        form = QFormLayout()
+        self.date_from = QDateEdit(calendarPopup=True)
+        self.date_to = QDateEdit(calendarPopup=True)
+        today = QDate.currentDate()
+        self.date_to.setDate(today)
+        self.date_from.setDate(today.addDays(-7))
+        form.addRow("Data Início:", self.date_from)
+        form.addRow("Data Fim:", self.date_to)
+        layout.addLayout(form)
+        btn_load = QPushButton("Carregar Histórico")
+        btn_load.clicked.connect(self.load_history)
+        layout.addWidget(btn_load)
+        self.table = QTableWidget()
+        self.table.setShowGrid(True)
+        layout.addWidget(self.table)
         btn_close = QPushButton("Fechar")
         btn_close.clicked.connect(self.accept)
         layout.addWidget(btn_close)
 
+    def load_history(self):
+        start = self.date_from.date().toString('yyyy-MM-dd')
+        end = self.date_to.date().toString('yyyy-MM-dd')
+        combined = []
+        for tag_id in self.tag_ids:
+            hist_url = (
+                f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"
+                f"Connections/GetConsumptionHistory?contractServiceTagId={tag_id}&startDate={start}&endDate={end}"
+            )
+            resp = self.session.get(hist_url)
+            try:
+                hist_json = resp.json()
+                records = hist_json.get('historyData', [])
+            except Exception:
+                records = []
+            combined.extend(records)
+        if not combined:
+            QMessageBox.information(self, "Histórico de Conexão", "Nenhum dado disponível para o período informado.")
+            return
+        headers = list(combined[0].keys())
+        self.table.setColumnCount(len(headers))
+        self.table.setHorizontalHeaderLabels(headers)
+        self.table.setRowCount(len(combined))
+        for i, rec in enumerate(combined):
+            for j, key in enumerate(headers):
+                val = rec.get(key, '')
+                item = QTableWidgetItem(str(val))
+                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+                self.table.setItem(i, j, item)
+        self.table.resizeColumnsToContents()
 
 class MainWindow(QMainWindow):
     def __init__(self, usuario, senha):
@@ -69,71 +95,46 @@ class MainWindow(QMainWindow):
         self.usuario = usuario
         self.senha = senha
         self.protocol_data = []
-
-        # --- Tela da tabela ---
-        self.label = QLabel("Protocolos da equipe:")
+        self.session = None
+        # Table screen
         self.table = QTableWidget()
-        self.button_export = QPushButton("Exportar para Excel")
-        self.button_analyze = QPushButton("Analisar protocolo")
-
-        self.button_export.clicked.connect(self.export_to_excel)
-        self.button_analyze.clicked.connect(self.show_analysis_screen)
-
-        layout_table = QVBoxLayout()
-        layout_table.addWidget(self.label)
-        layout_table.addWidget(self.table)
-
-        button_layout = QHBoxLayout()
-        button_layout.addWidget(self.button_export)
-        button_layout.addWidget(self.button_analyze)
-        layout_table.addLayout(button_layout)
-
+        btn_export = QPushButton("Exportar para Excel")
+        btn_analyze = QPushButton("Analisar protocolo")
+        btn_export.clicked.connect(self.export_to_excel)
+        btn_analyze.clicked.connect(self.show_analysis_screen)
+        lt = QVBoxLayout()
+        lt.addWidget(QLabel("Protocolos da equipe:"))
+        lt.addWidget(self.table)
+        hb = QHBoxLayout()
+        hb.addWidget(btn_export)
+        hb.addWidget(btn_analyze)
+        lt.addLayout(hb)
         self.table_container = QWidget()
-        self.table_container.setLayout(layout_table)
-
-        # --- Tela de análise ---
+        self.table_container.setLayout(lt)
+        # Analysis screen
         self.analysis_container = QWidget()
         self.analysis_container.setVisible(False)
         self.init_analysis_ui()
-
-        # --- Layout principal ---
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(self.table_container)
-        main_layout.addWidget(self.analysis_container)
-
-        central = QWidget()
-        central.setLayout(main_layout)
-        self.setCentralWidget(central)
-
+        ml = QVBoxLayout()
+        ml.addWidget(self.table_container)
+        ml.addWidget(self.analysis_container)
+        ce = QWidget()
+        ce.setLayout(ml)
+        self.setCentralWidget(ce)
         self.showMaximized()
         QTimer.singleShot(100, self.extract_protocols)
 
     def extract_protocols(self):
         LOGIN_URL = "https://synsuite.teninternet.com.br/users/login"
         DATA_URL = "https://synsuite.teninternet.com.br/assignments/getDataTable"
-
-        session = requests.Session()
-        login_payload = {
-            "data[User][login]": self.usuario,
-            "data[User][password2]": self.senha
-        }
-        headers = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Referer": LOGIN_URL
-        }
-
-        login_response = session.post(LOGIN_URL, data=login_payload, headers=headers)
-        if "Assignments" not in login_response.text:
+        self.session = requests.Session()
+        payload = {"data[User][login]": self.usuario, "data[User][password2]": self.senha}
+        headers = {"Content-Type": "application/x-www-form-urlencoded", "Referer": LOGIN_URL}
+        r = self.session.post(LOGIN_URL, data=payload, headers=headers)
+        if "Assignments" not in r.text:
             QMessageBox.critical(self, "Erro", "Login falhou. Verifique as credenciais.")
-            self.close()
-            return
-
-        headers_data = {
-            "Content-Type": "application/x-www-form-urlencoded",
-            "X-Requested-With": "XMLHttpRequest",
-            "Referer": "https://synsuite.teninternet.com.br/assignments"
-        }
-
+            self.close(); return
+        headers_d = {"Content-Type": "application/x-www-form-urlencoded", "X-Requested-With": "XMLHttpRequest", "Referer": "https://synsuite.teninternet.com.br/assignments"}
         fields = [
             "Assignment.id", "Assignment.title", "Responsible.name", "Assignment.progress",
             "Assignment.final_date", "Assignment.assignment_origin",
@@ -152,226 +153,153 @@ class MainWindow(QMainWindow):
             "Assignment.description", "Team.title", "Requestor.name_2", "Responsible.name_2",
             "Responsible.name", "Client.name_2", "Client.name", "Person.name_2", "Person.name"
         ]
-
-        base_conditions = {
-            "Assignment.task": 1,
-            "Assignment.deleted": False,
-            "Assignment.assignment_origin": 5,
-            "Assignment.progress <": 100,
-            "filter_team": 1
-        }
-
-        payload_teste = {
-            "sEcho": 1,
-            "iColumns": 7,
-            "sColumns": "",
-            "iDisplayStart": 0,
-            "iDisplayLength": 1,
-            "mDataProp_0": "Assignment.id",
-            "mDataProp_1": "Assignment.title",
-            "mDataProp_2": "Responsible.name",
-            "mDataProp_3": "Assignment.progress",
-            "mDataProp_4": "Assignment.final_date",
-            "mDataProp_5": "Assignment.assignment_origin",
-            "mDataProp_6": "AssignmentIncident.protocol",
-            "datatable": json.dumps({
-                "fields": fields,
-                "searchFields": search_fields,
-                "conditions": base_conditions
-            })
-        }
-
-        res_teste = session.post(DATA_URL, headers=headers_data, data=payload_teste)
-        res_json = res_teste.json()
-        total_registros = int(res_json.get("iTotalDisplayRecords", 0))
-
-        passo = 25
-        total_passos = (total_registros + passo - 1) // passo
-
-        progress_dialog = QProgressDialog("Carregando protocolos da equipe...", "Cancelar", 0, total_passos, self)
-        progress_dialog.setWindowTitle("Aguarde")
-        progress_dialog.setWindowModality(Qt.ApplicationModal)
-        progress_dialog.setAutoClose(True)
-        progress_dialog.show()
-
-        for i, start in enumerate(range(0, total_registros, passo)):
-            payload_data = payload_teste.copy()
-            payload_data["iDisplayStart"] = start
-            payload_data["iDisplayLength"] = passo
-
-            response = session.post(DATA_URL, headers=headers_data, data=payload_data)
-            data = response.json()
-
-            if not data.get("aaData"):
-                break
-
-            for item in data.get("aaData", []):
-                try:
-                    title = item["Assignment"].get("title", "")
-                    parts = title.split(" - ", 2)
-                    if len(parts) < 2 or "DESCONTO" not in parts[1].upper():
-                        continue
-
-                    protocol = item["AssignmentIncident"].get("protocol", "")
-                    requester = item["Requestor"].get("name", "")
-                    final_date = item["Assignment"].get("final_date", "")
-                    description = item["Assignment"].get("description", "")
-                    self.protocol_data.append([protocol, title, requester, final_date, description])
-                except KeyError as e:
-                    print(f"[!] Campo ausente: {e}")
-                    continue
-
-            progress_dialog.setValue(i + 1)
-            QApplication.processEvents()
-
+        base = {"Assignment.task":1, "Assignment.deleted":False, "Assignment.assignment_origin":5, "Assignment.progress <":100, "filter_team":1}
+        base_payload = {"sEcho":1, "iColumns":7, "sColumns":"", "iDisplayStart":0, "iDisplayLength":1, "mDataProp_0":"Assignment.id","mDataProp_1":"Assignment.title","mDataProp_2":"Responsible.name","mDataProp_3":"Assignment.progress","mDataProp_4":"Assignment.final_date","mDataProp_5":"Assignment.assignment_origin","mDataProp_6":"AssignmentIncident.protocol","datatable": json.dumps({"fields":fields,"searchFields":search_fields,"conditions":base})}
+        total = self.session.post(DATA_URL, headers=headers_d, data=base_payload).json().get("iTotalDisplayRecords",0)
+        passo=25; steps=(total+passo-1)//passo
+        dlg = QProgressDialog("Carregando protocolos da equipe...","Cancelar",0,steps,self)
+        dlg.setWindowTitle("Aguarde...")
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.show()
+        for i,start in enumerate(range(0,total,passo)):
+            pl = base_payload.copy(); pl["iDisplayStart"]=start; pl["iDisplayLength"]=passo
+            data = self.session.post(DATA_URL,headers=headers_d,data=pl).json().get("aaData",[])
+            for it in data:
+                title=it["Assignment"].get("title","")
+                if "DESCONTO" not in title.upper(): continue
+                aid=it["Assignment"].get("id","")
+                protocol=it["AssignmentIncident"].get("protocol",
+"")
+                requester=it["Requestor"].get("name","")
+                final_date=it["Assignment"].get("final_date","")
+                desc=it["Assignment"].get("description","")
+                self.protocol_data.append([aid,protocol,title,requester,final_date,desc])
+            dlg.setValue(i+1); QApplication.processEvents()
         if not self.protocol_data:
-            QMessageBox.information(self, "Resultado", "Nenhum protocolo encontrado com critério 'DESCONTO'.")
-            return
-
-        self.protocol_data.sort(key=lambda x: x[0])
-        self.populate_table()
+            QMessageBox.information(self,"Resultado","Nenhum protocolo encontrado.")
+        else:
+            self.protocol_data.sort(key=lambda x: x[0])
+            self.populate_table()
 
     def populate_table(self):
-        headers = ["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"]
-        self.table.setColumnCount(len(headers))
-        self.table.setHorizontalHeaderLabels(headers)
-
-        header = self.table.horizontalHeader()
-        for i in range(self.table.columnCount()):
-            header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-
+        hdrs = ["ID", "Protocolo", "Título", "Solicitante", "Data Final", "Descrição"]
+        self.table.setColumnCount(len(hdrs))
+        self.table.setHorizontalHeaderLabels(hdrs)
         self.table.setRowCount(len(self.protocol_data))
-
-        for row_idx, row_data in enumerate(self.protocol_data):
-            for col_idx, value in enumerate(row_data):
-                if col_idx == 4:  # coluna "Descrição"
-                    label = QLabel()
-                    label.setTextFormat(Qt.RichText)
-                    label.setWordWrap(True)
-                    label.setText(value.replace('\n', '<br>'))
-                    label.adjustSize()  # força ajustar tamanho interno
-
-                    self.table.setCellWidget(row_idx, col_idx, label)
-
-                    # Ajusta a altura da linha para mostrar todo conteúdo do QLabel
-                    height = label.sizeHint().height()
-                    self.table.setRowHeight(row_idx, max(height, 30))  # mínimo 30 px
+        for i, row in enumerate(self.protocol_data):
+            for j, val in enumerate(row):
+                if j == 5:
+                    lbl = QLabel()
+                    lbl.setTextFormat(Qt.RichText)
+                    lbl.setWordWrap(True)
+                    lbl.setText(val.replace("\n", "<br>"))
+                    self.table.setCellWidget(i, j, lbl)
+                    height = lbl.sizeHint().height()
+                    self.table.setRowHeight(i, max(height, 30))
                 else:
-                    item = QTableWidgetItem(str(value))
-                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
-                    item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                    self.table.setItem(row_idx, col_idx, item)
-
+                    it = QTableWidgetItem(str(val))
+                    it.setFlags(it.flags() ^ Qt.ItemIsEditable)
+                    it.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
+                    self.table.setItem(i, j, it)
         self.table.resizeColumnsToContents()
-
-
-    def export_to_excel(self):
-        df = pd.DataFrame(self.protocol_data, columns=["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"])
-        filename, _ = QFileDialog.getSaveFileName(self, "Salvar Arquivo", "protocolos_synsuite.xlsx", "Excel Files (*.xlsx)")
-        if filename:
-            df.to_excel(filename, index=False)
-            QMessageBox.information(self, "Sucesso", f"Arquivo salvo como: {filename}")
 
     def init_analysis_ui(self):
         self.scroll = QScrollArea()
         self.scroll.setWidgetResizable(True)
-        self.scroll_content = QWidget()
-        self.scroll_layout = QVBoxLayout(self.scroll_content)
-
-        self.scroll.setWidget(self.scroll_content)
-
-        # Buttons layout
-        button_layout = QHBoxLayout()
-        buttons = [
-            "Exportar para PDF",
-            "Exportar para Excel (XLSX)",
-            "Analisar histórico de conexão",
-            "Calcular desconto",
-        ]
-        for name in buttons:
-            btn = QPushButton(name)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        cont = QWidget()
+        self.scroll_layout = QVBoxLayout(cont)
+        self.scroll.setWidget(cont)
+        btn_layout = QHBoxLayout()
+        for name in [
+            "Exportar para PDF", "Exportar para Excel (XLSX)",
+            "Analisar histórico de conexão", "Calcular desconto"
+        ]:
+            b = QPushButton(name)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             if name == "Analisar histórico de conexão":
-                btn.clicked.connect(self.show_connection_history)
-            button_layout.addWidget(btn)
-
-        self.button_back = QPushButton("Voltar")
-        self.button_back.clicked.connect(self.show_table_screen)
-        button_layout.addWidget(self.button_back)
-
-        layout = QVBoxLayout()
-        layout.addWidget(self.scroll)
-        layout.addLayout(button_layout)
-
-        self.analysis_container.setLayout(layout)
+                b.clicked.connect(self.show_connection_history)
+            btn_layout.addWidget(b)
+        back = QPushButton("Voltar")
+        back.clicked.connect(self.show_table_screen)
+        btn_layout.addWidget(back)
+        lay = QVBoxLayout(self.analysis_container)
+        lay.addWidget(self.scroll)
+        lay.addLayout(btn_layout)
 
     def show_analysis_screen(self):
-        # Clean previous
+        # Limpa itens anteriores
         for i in reversed(range(self.scroll_layout.count())):
-            widget = self.scroll_layout.itemAt(i).widget()
-            if widget:
-                widget.deleteLater()
-
-        # Store checkboxes with protocol data
+            w = self.scroll_layout.itemAt(i).widget()
+            if w:
+                w.deleteLater()
         self.checkboxes = []
-        for protocol in self.protocol_data:
+        # Adiciona cada protocolo com descrição e estilo de grade
+        for row in self.protocol_data:
             box = QWidget()
-            box_layout = QVBoxLayout(box)
-            box.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
-
-            checkbox = QCheckBox(f"Selecionar protocolo {protocol[0]}")
-            self.checkboxes.append((checkbox, box, protocol))
-            checkbox.stateChanged.connect(self.toggle_selection_effect)
-            box_layout.addWidget(checkbox)
-
-            for label, content in zip(["Protocolo", "Título", "Solicitante", "Data Final"], protocol[:4]):
-                box_layout.addWidget(QLabel(f"<b>{label}:</b> {content}"))
-
-            descricao = QLabel()
-            descricao.setTextFormat(Qt.RichText)
-            descricao.setWordWrap(True)
-            descricao.setText(protocol[4].replace('\n', '<br>'))
-            box_layout.addWidget(QLabel("<b>Descrição:</b>"))
-            box_layout.addWidget(descricao)
-
+            # borda e espaçamento inicial
+            default_style = "border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"
+            selected_style = "background-color:#474747; color:white; border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"
+            box.setStyleSheet(default_style)
+            bl = QVBoxLayout(box)
+            cb = QCheckBox("Selecionar")
+            self.checkboxes.append((cb, row[0]))
+            # atualiza estilo ao selecionar/desselecionar
+            def on_state_change(state, b=box):
+                b.setStyleSheet(selected_style if state == Qt.Checked else default_style)
+            cb.stateChanged.connect(on_state_change)
+            bl.addWidget(cb)
+            for lab, val in zip(
+                ["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"],
+                row[1:]
+            ):
+                lbl = QLabel(f"<b>{lab}:</b> {val}")
+                lbl.setWordWrap(True)
+                bl.addWidget(lbl)
             self.scroll_layout.addWidget(box)
-
         self.table_container.setVisible(False)
         self.analysis_container.setVisible(True)
 
     def show_connection_history(self):
-        # Gather selected protocols
-        selected = [protocol for (cb, widget, protocol) in self.checkboxes if cb.isChecked()]
-        if not selected:
-            QMessageBox.information(self, "Histórico de Conexão", "Nenhum protocolo selecionado.")
+        # obtém contractServiceTagId antes de abrir diálogo
+        tag_ids = []
+        for cb, pid in self.checkboxes:
+            if cb.isChecked():
+                info_url = (
+                    f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"
+                    f"GetSolicitationInformations?assignmentId={pid}"
+                )
+                resp = self.session.get(info_url)
+                try:
+                    info_json = resp.json()
+                    tag_id = info_json.get('contractServiceTagId')
+                except Exception:
+                    tag_id = None
+                if tag_id:
+                    tag_ids.append(tag_id)
+        if not tag_ids:
+            QMessageBox.information(self, "Histórico de Conexão", "Selecione ao menos um protocolo.")
             return
-
-        dialog = ConnectionHistoryDialog(selected, self)
-        dialog.exec()
+        dlg = ConnectionHistoryDialog(self.session, tag_ids, self)
+        dlg.exec()
 
     def show_table_screen(self):
         self.analysis_container.setVisible(False)
         self.table_container.setVisible(True)
 
-    def toggle_selection_effect(self, state):
-        checkbox = self.sender()
-        for cb, widget, _ in self.checkboxes:
-            if cb is checkbox:
-                if state == Qt.Checked:
-                    widget.setStyleSheet("background-color: #d0f0c0; border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
-                else:
-                    widget.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
-
+    def export_to_excel(self):
+        df = pd.DataFrame(self.protocol_data, columns=["ID","Protocolo","Título","Solicitante","Data Final","Descrição"])
+        fn, _ = QFileDialog.getSaveFileName(self, "Salvar Excel", "protocolos.xlsx", "Excel Files (*.xlsx)")
+        if fn:
+            df.to_excel(fn, index=False)
+            QMessageBox.information(self, "Sucesso", f"Salvo em: {fn}")
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-
     login = LoginDialog()
     if login.exec() == QDialog.Accepted:
-        usuario, senha = login.get_credentials()
-        window = MainWindow(usuario, senha)
-        window.show()
+        u, p = login.get_credentials()
+        w = MainWindow(u, p)
+        w.show()
         sys.exit(app.exec())
     else:
-        print("Login cancelado pelo usuário.")
         sys.exit()
