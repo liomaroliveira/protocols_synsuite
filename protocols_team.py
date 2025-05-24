@@ -11,7 +11,6 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QTextDocument
 
-
 class LoginDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,22 +34,50 @@ class LoginDialog(QDialog):
         return self.user_input.text(), self.pass_input.text()
 
 
+class ConnectionHistoryDialog(QDialog):
+    def __init__(self, history_data, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Histórico de Conexão")
+        layout = QVBoxLayout(self)
+
+        # Create table
+        table = QTableWidget()
+        headers = ["Protocolo", "Título", "Solicitante", "Data Final"]
+        table.setColumnCount(len(headers))
+        table.setHorizontalHeaderLabels(headers)
+        table.setRowCount(len(history_data))
+
+        for row_idx, record in enumerate(history_data):
+            for col_idx, value in enumerate(record[:4]):
+                item = QTableWidgetItem(str(value))
+                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                table.setItem(row_idx, col_idx, item)
+
+        table.resizeColumnsToContents()
+        layout.addWidget(table)
+
+        # Add close button
+        btn_close = QPushButton("Fechar")
+        btn_close.clicked.connect(self.accept)
+        layout.addWidget(btn_close)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, usuario, senha):
         super().__init__()
-        self.setWindowTitle("Extrator de Protocolos da Equipe - SynSuite")
+        self.setWindowTitle("Solicitações de Desconto - SynSuite")
         self.usuario = usuario
         self.senha = senha
         self.protocol_data = []
 
         # --- Tela da tabela ---
-        self.label = QLabel("Protocolos extraídos:")
+        self.label = QLabel("Protocolos da equipe:")
         self.table = QTableWidget()
         self.button_export = QPushButton("Exportar para Excel")
         self.button_analyze = QPushButton("Analisar protocolo")
 
         self.button_export.clicked.connect(self.export_to_excel)
-        self.button_analyze.clicked.connect(self.show_analysis_screen)  # novo nome do método
+        self.button_analyze.clicked.connect(self.show_analysis_screen)
 
         layout_table = QVBoxLayout()
         layout_table.addWidget(self.label)
@@ -66,7 +93,7 @@ class MainWindow(QMainWindow):
 
         # --- Tela de análise ---
         self.analysis_container = QWidget()
-        self.analysis_container.setVisible(False)  # começa escondida
+        self.analysis_container.setVisible(False)
         self.init_analysis_ui()
 
         # --- Layout principal ---
@@ -253,9 +280,7 @@ class MainWindow(QMainWindow):
 
         self.scroll.setWidget(self.scroll_content)
 
-        self.button_back = QPushButton("Voltar")
-        self.button_back.clicked.connect(self.show_table_screen)
-
+        # Buttons layout
         button_layout = QHBoxLayout()
         buttons = [
             "Exportar para PDF",
@@ -266,7 +291,12 @@ class MainWindow(QMainWindow):
         for name in buttons:
             btn = QPushButton(name)
             btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            if name == "Analisar histórico de conexão":
+                btn.clicked.connect(self.show_connection_history)
             button_layout.addWidget(btn)
+
+        self.button_back = QPushButton("Voltar")
+        self.button_back.clicked.connect(self.show_table_screen)
         button_layout.addWidget(self.button_back)
 
         layout = QVBoxLayout()
@@ -276,22 +306,22 @@ class MainWindow(QMainWindow):
         self.analysis_container.setLayout(layout)
 
     def show_analysis_screen(self):
+        # Clean previous
         for i in reversed(range(self.scroll_layout.count())):
             widget = self.scroll_layout.itemAt(i).widget()
             if widget:
                 widget.deleteLater()
 
+        # Store checkboxes with protocol data
         self.checkboxes = []
-
         for protocol in self.protocol_data:
             box = QWidget()
             box_layout = QVBoxLayout(box)
             box.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
 
             checkbox = QCheckBox(f"Selecionar protocolo {protocol[0]}")
-            self.checkboxes.append((checkbox, box))
+            self.checkboxes.append((checkbox, box, protocol))
             checkbox.stateChanged.connect(self.toggle_selection_effect)
-
             box_layout.addWidget(checkbox)
 
             for label, content in zip(["Protocolo", "Título", "Solicitante", "Data Final"], protocol[:4]):
@@ -301,7 +331,6 @@ class MainWindow(QMainWindow):
             descricao.setTextFormat(Qt.RichText)
             descricao.setWordWrap(True)
             descricao.setText(protocol[4].replace('\n', '<br>'))
-
             box_layout.addWidget(QLabel("<b>Descrição:</b>"))
             box_layout.addWidget(descricao)
 
@@ -310,14 +339,23 @@ class MainWindow(QMainWindow):
         self.table_container.setVisible(False)
         self.analysis_container.setVisible(True)
 
+    def show_connection_history(self):
+        # Gather selected protocols
+        selected = [protocol for (cb, widget, protocol) in self.checkboxes if cb.isChecked()]
+        if not selected:
+            QMessageBox.information(self, "Histórico de Conexão", "Nenhum protocolo selecionado.")
+            return
+
+        dialog = ConnectionHistoryDialog(selected, self)
+        dialog.exec()
+
     def show_table_screen(self):
         self.analysis_container.setVisible(False)
         self.table_container.setVisible(True)
 
     def toggle_selection_effect(self, state):
-        # Só um exemplo de efeito visual quando seleciona protocolo
         checkbox = self.sender()
-        for cb, widget in self.checkboxes:
+        for cb, widget, _ in self.checkboxes:
             if cb is checkbox:
                 if state == Qt.Checked:
                     widget.setStyleSheet("background-color: #d0f0c0; border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
