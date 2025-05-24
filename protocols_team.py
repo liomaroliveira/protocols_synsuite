@@ -5,10 +5,11 @@ import pandas as pd
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout,
     QWidget, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
-    QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog, QStackedWidget,
-    QTextEdit, QHBoxLayout
+    QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog,
+    QTextEdit, QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox
 )
 from PySide6.QtCore import Qt, QTimer
+from PySide6.QtGui import QTextDocument
 
 
 class LoginDialog(QDialog):
@@ -45,23 +46,24 @@ class MainWindow(QMainWindow):
         self.label = QLabel("Protocolos extraídos:")
         self.table = QTableWidget()
         self.button_export = QPushButton("Exportar para Excel")
-        self.button_export.clicked.connect(self.export_to_excel)
         self.button_analyze = QPushButton("Analisar protocolo")
-        self.button_analyze.clicked.connect(self.show_analysis_screen)
+
+        self.button_export.clicked.connect(self.export_to_excel)
+        self.button_analyze.clicked.connect(self.open_analysis_screen)
 
         layout = QVBoxLayout()
         layout.addWidget(self.label)
         layout.addWidget(self.table)
-        layout.addWidget(self.button_export)
-        layout.addWidget(self.button_analyze)
+
+        button_layout = QHBoxLayout()
+        button_layout.addWidget(self.button_export)
+        button_layout.addWidget(self.button_analyze)
+        layout.addLayout(button_layout)
 
         container = QWidget()
         container.setLayout(layout)
+        self.setCentralWidget(container)
 
-        self.stacked_widget = QStackedWidget()
-        self.stacked_widget.addWidget(container)
-
-        self.setCentralWidget(self.stacked_widget)
         self.showMaximized()
 
         QTimer.singleShot(100, self.extract_protocols)
@@ -92,76 +94,121 @@ class MainWindow(QMainWindow):
             "Referer": "https://synsuite.teninternet.com.br/assignments"
         }
 
-        fields = ["Assignment.id", "Assignment.title", "Requestor.name", "Assignment.final_date", "AssignmentIncident.protocol", "Assignment.description"]
-        search_fields = ["Assignment.description"]
-        conditions = {"Assignment.task": 1, "Assignment.deleted": False, "Assignment.assignment_origin": 5, "Assignment.progress <": 100, "filter_team": 1}
+        fields = [
+            "Assignment.id", "Assignment.title", "Responsible.name", "Assignment.progress",
+            "Assignment.final_date", "Assignment.priority", "Assignment.assignment_origin",
+            "Requestor.name_2", "Assignment.description", "Assignment.assignment_type",
+            "Assignment.date_situation", "Assignment.has_children",
+            "Assignment.has_product_acquisition_requests", "Assignment.blockTask",
+            "Assignment.responsible_id", "Assignment.client_projects", "Assignment.lawsuit_id",
+            "Assignment.time_remaining", "Assignment.days_remaining", "Assignment.weight",
+            "Assignment.in_execution", "Requestor.name", "AssignmentIncident.team_manager_id",
+            "AssignmentIncident.incident_status_id", "AssignmentIncident.protocol",
+            "AssignmentIncident.client_id", "Responsible.name_2", "Team.title",
+            "Assignment.is_omnichannel", "IncidentType.solicitation_type"
+        ]
 
-        payload_base = {
-            "sEcho": 1,
-            "iColumns": 6,
-            "sColumns": "",
-            "mDataProp_0": "Assignment.id",
-            "mDataProp_1": "Assignment.title",
-            "mDataProp_2": "Requestor.name",
-            "mDataProp_3": "Assignment.final_date",
-            "mDataProp_4": "AssignmentIncident.protocol",
-            "mDataProp_5": "Assignment.description",
-            "datatable": json.dumps({"fields": fields, "searchFields": search_fields, "conditions": conditions})
+        search_fields = [
+            "Assignment.description", "Team.title", "Requestor.name_2", "Responsible.name_2",
+            "Responsible.name", "Client.name_2", "Client.name", "Person.name_2", "Person.name"
+        ]
+
+        base_conditions = {
+            "Assignment.task": 1,
+            "Assignment.deleted": False,
+            "Assignment.assignment_origin": 5,
+            "Assignment.progress <": 100,
+            "filter_team": 1
         }
 
-        test_payload = payload_base.copy()
-        test_payload["iDisplayStart"] = 0
-        test_payload["iDisplayLength"] = 1
-        total_registros = session.post(DATA_URL, headers=headers_data, data=test_payload).json().get("iTotalDisplayRecords", 0)
+        payload_teste = {
+            "sEcho": 1,
+            "iColumns": 7,
+            "sColumns": "",
+            "iDisplayStart": 0,
+            "iDisplayLength": 1,
+            "mDataProp_0": "Assignment.id",
+            "mDataProp_1": "Assignment.title",
+            "mDataProp_2": "Responsible.name",
+            "mDataProp_3": "Assignment.progress",
+            "mDataProp_4": "Assignment.final_date",
+            "mDataProp_5": "Assignment.assignment_origin",
+            "mDataProp_6": "AssignmentIncident.protocol",
+            "datatable": json.dumps({
+                "fields": fields,
+                "searchFields": search_fields,
+                "conditions": base_conditions
+            })
+        }
+
+        res_teste = session.post(DATA_URL, headers=headers_data, data=payload_teste)
+        res_json = res_teste.json()
+        total_registros = int(res_json.get("iTotalDisplayRecords", 0))
+
         passo = 25
         total_passos = (total_registros + passo - 1) // passo
 
-        progress_dialog = QProgressDialog("Carregando protocolos...", "Cancelar", 0, total_passos, self)
+        progress_dialog = QProgressDialog("Carregando protocolos da equipe...", "Cancelar", 0, total_passos, self)
         progress_dialog.setWindowTitle("Aguarde")
         progress_dialog.setWindowModality(Qt.ApplicationModal)
         progress_dialog.setAutoClose(True)
         progress_dialog.show()
 
         for i, start in enumerate(range(0, total_registros, passo)):
-            payload_data = payload_base.copy()
+            payload_data = payload_teste.copy()
             payload_data["iDisplayStart"] = start
             payload_data["iDisplayLength"] = passo
-            data = session.post(DATA_URL, headers=headers_data, data=payload_data).json()
+
+            response = session.post(DATA_URL, headers=headers_data, data=payload_data)
+            data = response.json()
+
+            if not data.get("aaData"):
+                break
 
             for item in data.get("aaData", []):
-                title = item["Assignment"].get("title", "")
-                parts = title.split(" - ", 2)
-                if len(parts) < 2 or "DESCONTO" not in parts[1].upper():
+                try:
+                    title = item["Assignment"].get("title", "")
+                    parts = title.split(" - ", 2)
+                    if len(parts) < 2 or "DESCONTO" not in parts[1].upper():
+                        continue
+
+                    protocol = item["AssignmentIncident"].get("protocol", "")
+                    requester = item["Requestor"].get("name", "")
+                    final_date = item["Assignment"].get("final_date", "")
+                    description = item["Assignment"].get("description", "")
+                    self.protocol_data.append([protocol, title, requester, final_date, description])
+                except KeyError as e:
+                    print(f"[!] Campo ausente: {e}")
                     continue
-                row = [
-                    item["AssignmentIncident"].get("protocol", ""),
-                    title,
-                    item["Requestor"].get("name", ""),
-                    item["Assignment"].get("final_date", ""),
-                    item["Assignment"].get("description", "")
-                ]
-                self.protocol_data.append(row)
 
             progress_dialog.setValue(i + 1)
             QApplication.processEvents()
-
-        self.protocol_data.sort(key=lambda x: x[0])
 
         if not self.protocol_data:
             QMessageBox.information(self, "Resultado", "Nenhum protocolo encontrado com critério 'DESCONTO'.")
             return
 
+        self.protocol_data.sort(key=lambda x: x[0])
         self.populate_table()
 
     def populate_table(self):
         headers = ["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
+        
+        # Alinha os títulos à esquerda
+        header = self.table.horizontalHeader()
+        for i in range(self.table.columnCount()):
+            header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
         self.table.setRowCount(len(self.protocol_data))
 
         for row_idx, row_data in enumerate(self.protocol_data):
             for col_idx, value in enumerate(row_data):
-                self.table.setItem(row_idx, col_idx, QTableWidgetItem(str(value)))
+                item = QTableWidgetItem(str(value))
+                item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
+                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                self.table.setItem(row_idx, col_idx, item)
 
         self.table.resizeColumnsToContents()
 
@@ -172,26 +219,54 @@ class MainWindow(QMainWindow):
             df.to_excel(filename, index=False)
             QMessageBox.information(self, "Sucesso", f"Arquivo salvo como: {filename}")
 
-    def show_analysis_screen(self):
-        analysis_widget = QWidget()
-        layout = QVBoxLayout()
+    def open_analysis_screen(self):
+        self.analysis_window = QWidget()
+        self.analysis_window.setWindowTitle("Análise de Protocolos")
+        self.analysis_window.setMinimumSize(800, 600)
 
-        for row in self.protocol_data:
-            protocol, title, requester, final_date, description = row
-            info = f"Protocolo: {protocol}\nTítulo: {title}\nSolicitante: {requester}\nData Final: {final_date}\nDescrição: {description}\n"
-            layout.addWidget(QLabel(info))
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll_content = QWidget()
+        scroll_layout = QVBoxLayout(scroll_content)
 
-        btn_layout = QHBoxLayout()
-        btn_layout.addWidget(QPushButton("Exportar para PDF"))
-        btn_layout.addWidget(QPushButton("Exportar para Excel (XLSX)"))
-        btn_layout.addWidget(QPushButton("Analisar histórico de conexão"))
-        btn_layout.addWidget(QPushButton("Calcular desconto"))
+        for protocol in self.protocol_data:
+            box = QWidget()
+            box_layout = QVBoxLayout(box)
+            box.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
 
-        layout.addLayout(btn_layout)
-        analysis_widget.setLayout(layout)
-        self.stacked_widget.addWidget(analysis_widget)
-        self.stacked_widget.setCurrentWidget(analysis_widget)
+            select_checkbox = QCheckBox(f"Selecionar protocolo {protocol[0]}")
+            box_layout.addWidget(select_checkbox)
 
+            for label, content in zip(["Protocolo", "Título", "Solicitante", "Data Final"], protocol[:4]):
+                box_layout.addWidget(QLabel(f"<b>{label}:</b> {content}"))
+
+            descricao = QLabel()
+            descricao.setTextFormat(Qt.RichText)
+            descricao.setWordWrap(True)
+            descricao.setText(f"<b>Descrição:</b> {protocol[4]}")
+
+            box_layout.addWidget(QLabel("<b>Descrição:</b>"))
+            box_layout.addWidget(descricao)
+
+            scroll_layout.addWidget(box)
+
+        scroll.setWidget(scroll_content)
+
+        button_layout = QHBoxLayout()
+        buttons = ["Exportar para PDF", "Exportar para Excel (XLSX)", "Analisar histórico de conexão", "Calcular desconto", "Voltar"]
+        for name in buttons:
+            btn = QPushButton(name)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            if name == "Voltar":
+                btn.clicked.connect(self.analysis_window.close)
+            button_layout.addWidget(btn)
+
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(scroll)
+        main_layout.addLayout(button_layout)
+
+        self.analysis_window.setLayout(main_layout)
+        self.analysis_window.show()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
