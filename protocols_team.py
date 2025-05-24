@@ -6,7 +6,7 @@ from PySide6.QtWidgets import (
     QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout,
     QWidget, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,
     QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog,
-    QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox, QDateEdit
+    QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox, QDateEdit, QTextEdit
 )
 from PySide6.QtCore import Qt, QTimer, QDate
 
@@ -65,13 +65,16 @@ class ConnectionHistoryDialog(QDialog):
                 f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"
                 f"Connections/GetConsumptionHistory?contractServiceTagId={tag_id}&startDate={start}&endDate={end}"
             )
-            resp = self.session.get(hist_url)
+            resp = self.session.get(hist_url, headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://synsuite.teninternet.com.br/assignments"})
+            print(f"HIST URL {hist_url} -> status {resp.status_code}, text snippet: {resp.text[:200]}")
             try:
                 hist_json = resp.json()
                 records = hist_json.get('historyData', [])
-            except Exception:
+            except Exception as e:
+                print(f"Erro ao parsear JSON do histórico: {e}")
                 records = []
             combined.extend(records)
+        print(f"TOTAL registros obtidos: {len(combined)}")
         if not combined:
             QMessageBox.information(self, "Histórico de Conexão", "Nenhum dado disponível para o período informado.")
             return
@@ -168,8 +171,7 @@ class MainWindow(QMainWindow):
                 title=it["Assignment"].get("title","")
                 if "DESCONTO" not in title.upper(): continue
                 aid=it["Assignment"].get("id","")
-                protocol=it["AssignmentIncident"].get("protocol",
-"")
+                protocol=it["AssignmentIncident"].get("protocol","")
                 requester=it["Requestor"].get("name","")
                 final_date=it["Assignment"].get("final_date","")
                 desc=it["Assignment"].get("description","")
@@ -227,23 +229,19 @@ class MainWindow(QMainWindow):
         lay.addLayout(btn_layout)
 
     def show_analysis_screen(self):
-        # Limpa itens anteriores
         for i in reversed(range(self.scroll_layout.count())):
             w = self.scroll_layout.itemAt(i).widget()
             if w:
                 w.deleteLater()
         self.checkboxes = []
-        # Adiciona cada protocolo com descrição e estilo de grade
         for row in self.protocol_data:
             box = QWidget()
-            # borda e espaçamento inicial
             default_style = "border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"
-            selected_style = "background-color:#474747; color:white; border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"
+            selected_style = "background-color:#333333; color:white; border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"
             box.setStyleSheet(default_style)
             bl = QVBoxLayout(box)
             cb = QCheckBox("Selecionar")
             self.checkboxes.append((cb, row[0]))
-            # atualiza estilo ao selecionar/desselecionar
             def on_state_change(state, b=box):
                 b.setStyleSheet(selected_style if state == Qt.Checked else default_style)
             cb.stateChanged.connect(on_state_change)
@@ -260,7 +258,6 @@ class MainWindow(QMainWindow):
         self.analysis_container.setVisible(True)
 
     def show_connection_history(self):
-        # obtém contractServiceTagId antes de abrir diálogo
         tag_ids = []
         for cb, pid in self.checkboxes:
             if cb.isChecked():
@@ -268,14 +265,17 @@ class MainWindow(QMainWindow):
                     f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"
                     f"GetSolicitationInformations?assignmentId={pid}"
                 )
-                resp = self.session.get(info_url)
+                resp = self.session.get(info_url, headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://synsuite.teninternet.com.br/assignments"})
+                print(f"INFO URL {info_url} -> status {resp.status_code}, text snippet: {resp.text[:200]}")
                 try:
                     info_json = resp.json()
                     tag_id = info_json.get('contractServiceTagId')
-                except Exception:
+                except Exception as e:
+                    print(f"Erro ao parsear JSON de info: {e}")
                     tag_id = None
                 if tag_id:
                     tag_ids.append(tag_id)
+        print(f"Obtained tag_ids: {tag_ids}")
         if not tag_ids:
             QMessageBox.information(self, "Histórico de Conexão", "Selecione ao menos um protocolo.")
             return
@@ -294,12 +294,25 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, "Sucesso", f"Salvo em: {fn}")
 
 if __name__ == "__main__":
-    app = QApplication(sys.argv)
-    login = LoginDialog()
-    if login.exec() == QDialog.Accepted:
-        u, p = login.get_credentials()
-        w = MainWindow(u, p)
-        w.show()
-        sys.exit(app.exec())
-    else:
-        sys.exit()
+    import traceback
+    try:
+        print("Inicializando aplicação...")
+        app = QApplication(sys.argv)
+        print("Criado QApplication")
+        login = LoginDialog()
+        print("Instanciado LoginDialog")
+        result = login.exec()
+        print(f"Resultado do login.exec(): {result}")
+        if result == QDialog.Accepted:
+            u, p = login.get_credentials()
+            print(f"Credenciais obtidas: {u}, {'*'*len(p)}")
+            w = MainWindow(u, p)
+            w.show()
+            sys.exit(app.exec())
+        else:
+            print("Login cancelado pelo usuário.")
+            sys.exit()
+    except Exception as e:
+        print("Erro inesperado:")
+        traceback.print_exc()
+        sys.exit(1)
