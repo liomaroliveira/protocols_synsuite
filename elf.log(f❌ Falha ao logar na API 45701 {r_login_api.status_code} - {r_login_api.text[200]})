@@ -1,0 +1,136 @@
+[33mcommit 7ba17a83228250024296c886a0d1084d4c946690[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m)[m
+Author: Liomar Oliveira <liomar.antonio@hotmail.com>
+Date:   Sat May 24 17:59:52 2025 -0300
+
+    chore(validation): add logs for data validation steps
+
+[1mdiff --git a/protocols_team.py b/protocols_team.py[m
+[1mindex ad7e2d1..3bfd8a5 100644[m
+[1m--- a/protocols_team.py[m
+[1m+++ b/protocols_team.py[m
+[36m@@ -6,7 +6,7 @@[m [mfrom PySide6.QtWidgets import ([m
+     QApplication, QMainWindow, QPushButton, QLabel, QVBoxLayout,[m
+     QWidget, QMessageBox, QDialog, QFormLayout, QLineEdit, QDialogButtonBox,[m
+     QTableWidget, QTableWidgetItem, QFileDialog, QProgressDialog,[m
+[31m-    QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox, QDateEdit[m
+[32m+[m[32m    QHBoxLayout, QScrollArea, QSizePolicy, QCheckBox, QDateEdit, QTextEdit[m
+ )[m
+ from PySide6.QtCore import Qt, QTimer, QDate[m
+ [m
+[36m@@ -65,13 +65,16 @@[m [mclass ConnectionHistoryDialog(QDialog):[m
+                 f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"[m
+                 f"Connections/GetConsumptionHistory?contractServiceTagId={tag_id}&startDate={start}&endDate={end}"[m
+             )[m
+[31m-            resp = self.session.get(hist_url)[m
+[32m+[m[32m            resp = self.session.get(hist_url, headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://synsuite.teninternet.com.br/assignments"})[m
+[32m+[m[32m            print(f"HIST URL {hist_url} -> status {resp.status_code}, text snippet: {resp.text[:200]}")[m
+             try:[m
+                 hist_json = resp.json()[m
+                 records = hist_json.get('historyData', [])[m
+[31m-            except Exception:[m
+[32m+[m[32m            except Exception as e:[m
+[32m+[m[32m                print(f"Erro ao parsear JSON do histórico: {e}")[m
+                 records = [][m
+             combined.extend(records)[m
+[32m+[m[32m        print(f"TOTAL registros obtidos: {len(combined)}")[m
+         if not combined:[m
+             QMessageBox.information(self, "Histórico de Conexão", "Nenhum dado disponível para o período informado.")[m
+             return[m
+[36m@@ -168,8 +171,7 @@[m [mclass MainWindow(QMainWindow):[m
+                 title=it["Assignment"].get("title","")[m
+                 if "DESCONTO" not in title.upper(): continue[m
+                 aid=it["Assignment"].get("id","")[m
+[31m-                protocol=it["AssignmentIncident"].get("protocol",[m
+[31m-"")[m
+[32m+[m[32m                protocol=it["AssignmentIncident"].get("protocol","")[m
+                 requester=it["Requestor"].get("name","")[m
+                 final_date=it["Assignment"].get("final_date","")[m
+                 desc=it["Assignment"].get("description","")[m
+[36m@@ -227,23 +229,19 @@[m [mclass MainWindow(QMainWindow):[m
+         lay.addLayout(btn_layout)[m
+ [m
+     def show_analysis_screen(self):[m
+[31m-        # Limpa itens anteriores[m
+         for i in reversed(range(self.scroll_layout.count())):[m
+             w = self.scroll_layout.itemAt(i).widget()[m
+             if w:[m
+                 w.deleteLater()[m
+         self.checkboxes = [][m
+[31m-        # Adiciona cada protocolo com descrição e estilo de grade[m
+         for row in self.protocol_data:[m
+             box = QWidget()[m
+[31m-            # borda e espaçamento inicial[m
+             default_style = "border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"[m
+[31m-            selected_style = "background-color:#474747; color:white; border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"[m
+[32m+[m[32m            selected_style = "background-color:#333333; color:white; border:1px solid #ccc; border-radius:5px; padding:5px; margin-bottom:10px;"[m
+             box.setStyleSheet(default_style)[m
+             bl = QVBoxLayout(box)[m
+             cb = QCheckBox("Selecionar")[m
+             self.checkboxes.append((cb, row[0]))[m
+[31m-            # atualiza estilo ao selecionar/desselecionar[m
+             def on_state_change(state, b=box):[m
+                 b.setStyleSheet(selected_style if state == Qt.Checked else default_style)[m
+             cb.stateChanged.connect(on_state_change)[m
+[36m@@ -260,7 +258,6 @@[m [mclass MainWindow(QMainWindow):[m
+         self.analysis_container.setVisible(True)[m
+ [m
+     def show_connection_history(self):[m
+[31m-        # obtém contractServiceTagId antes de abrir diálogo[m
+         tag_ids = [][m
+         for cb, pid in self.checkboxes:[m
+             if cb.isChecked():[m
+[36m@@ -268,14 +265,17 @@[m [mclass MainWindow(QMainWindow):[m
+                     f"https://synsuite.teninternet.com.br:45701/api/v1/Projects/Attendance/"[m
+                     f"GetSolicitationInformations?assignmentId={pid}"[m
+                 )[m
+[31m-                resp = self.session.get(info_url)[m
+[32m+[m[32m                resp = self.session.get(info_url, headers={"X-Requested-With": "XMLHttpRequest", "Referer": "https://synsuite.teninternet.com.br/assignments"})[m
+[32m+[m[32m                print(f"INFO URL {info_url} -> status {resp.status_code}, text snippet: {resp.text[:200]}")[m
+                 try:[m
+                     info_json = resp.json()[m
+                     tag_id = info_json.get('contractServiceTagId')[m
+[31m-                except Exception:[m
+[32m+[m[32m                except Exception as e:[m
+[32m+[m[32m                    print(f"Erro ao parsear JSON de info: {e}")[m
+                     tag_id = None[m
+                 if tag_id:[m
+                     tag_ids.append(tag_id)[m
+[32m+[m[32m        print(f"Obtained tag_ids: {tag_ids}")[m
+         if not tag_ids:[m
+             QMessageBox.information(self, "Histórico de Conexão", "Selecione ao menos um protocolo.")[m
+             return[m
+[36m@@ -294,12 +294,25 @@[m [mclass MainWindow(QMainWindow):[m
+             QMessageBox.information(self, "Sucesso", f"Salvo em: {fn}")[m
+ [m
+ if __name__ == "__main__":[m
+[31m-    app = QApplication(sys.argv)[m
+[31m-    login = LoginDialog()[m
+[31m-    if login.exec() == QDialog.Accepted:[m
+[31m-        u, p = login.get_credentials()[m
+[31m-        w = MainWindow(u, p)[m
+[31m-        w.show()[m
+[31m-        sys.exit(app.exec())[m
+[31m-    else:[m
+[31m-        sys.exit()[m
+[32m+[m[32m    import traceback[m
+[32m+[m[32m    try:[m
+[32m+[m[32m        print("Inicializando aplicação...")[m
+[32m+[m[32m        app = QApplication(sys.argv)[m
+[32m+[m[32m        print("Criado QApplication")[m
+[32m+[m[32m        login = LoginDialog()[m
+[32m+[m[32m        print("Instanciado LoginDialog")[m
+[32m+[m[32m        result = login.exec()[m
+[32m+[m[32m        print(f"Resultado do login.exec(): {result}")[m
+[32m+[m[32m        if result == QDialog.Accepted:[m
+[32m+[m[32m            u, p = login.get_credentials()[m
+[32m+[m[32m            print(f"Credenciais obtidas: {u}, {'*'*len(p)}")[m
+[32m+[m[32m            w = MainWindow(u, p)[m
+[32m+[m[32m            w.show()[m
+[32m+[m[32m            sys.exit(app.exec())[m
+[32m+[m[32m        else:[m
+[32m+[m[32m            print("Login cancelado pelo usuário.")[m
+[32m+[m[32m            sys.exit()[m
+[32m+[m[32m    except Exception as e:[m
+[32m+[m[32m        print("Erro inesperado:")[m
+[32m+[m[32m        traceback.print_exc()[m
+[32m+[m[32m        sys.exit(1)[m
