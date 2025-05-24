@@ -43,29 +43,42 @@ class MainWindow(QMainWindow):
         self.senha = senha
         self.protocol_data = []
 
+        # --- Tela da tabela ---
         self.label = QLabel("Protocolos extraídos:")
         self.table = QTableWidget()
         self.button_export = QPushButton("Exportar para Excel")
         self.button_analyze = QPushButton("Analisar protocolo")
 
         self.button_export.clicked.connect(self.export_to_excel)
-        self.button_analyze.clicked.connect(self.open_analysis_screen)
+        self.button_analyze.clicked.connect(self.show_analysis_screen)  # novo nome do método
 
-        layout = QVBoxLayout()
-        layout.addWidget(self.label)
-        layout.addWidget(self.table)
+        layout_table = QVBoxLayout()
+        layout_table.addWidget(self.label)
+        layout_table.addWidget(self.table)
 
         button_layout = QHBoxLayout()
         button_layout.addWidget(self.button_export)
         button_layout.addWidget(self.button_analyze)
-        layout.addLayout(button_layout)
+        layout_table.addLayout(button_layout)
 
-        container = QWidget()
-        container.setLayout(layout)
-        self.setCentralWidget(container)
+        self.table_container = QWidget()
+        self.table_container.setLayout(layout_table)
+
+        # --- Tela de análise ---
+        self.analysis_container = QWidget()
+        self.analysis_container.setVisible(False)  # começa escondida
+        self.init_analysis_ui()
+
+        # --- Layout principal ---
+        main_layout = QVBoxLayout()
+        main_layout.addWidget(self.table_container)
+        main_layout.addWidget(self.analysis_container)
+
+        central = QWidget()
+        central.setLayout(main_layout)
+        self.setCentralWidget(central)
 
         self.showMaximized()
-
         QTimer.singleShot(100, self.extract_protocols)
 
     def extract_protocols(self):
@@ -96,7 +109,7 @@ class MainWindow(QMainWindow):
 
         fields = [
             "Assignment.id", "Assignment.title", "Responsible.name", "Assignment.progress",
-            "Assignment.final_date", "Assignment.priority", "Assignment.assignment_origin",
+            "Assignment.final_date", "Assignment.assignment_origin",
             "Requestor.name_2", "Assignment.description", "Assignment.assignment_type",
             "Assignment.date_situation", "Assignment.has_children",
             "Assignment.has_product_acquisition_requests", "Assignment.blockTask",
@@ -195,8 +208,7 @@ class MainWindow(QMainWindow):
         headers = ["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"]
         self.table.setColumnCount(len(headers))
         self.table.setHorizontalHeaderLabels(headers)
-        
-        # Alinha os títulos à esquerda
+
         header = self.table.horizontalHeader()
         for i in range(self.table.columnCount()):
             header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
@@ -205,12 +217,26 @@ class MainWindow(QMainWindow):
 
         for row_idx, row_data in enumerate(self.protocol_data):
             for col_idx, value in enumerate(row_data):
-                item = QTableWidgetItem(str(value))
-                item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
-                item.setFlags(item.flags() ^ Qt.ItemIsEditable)
-                self.table.setItem(row_idx, col_idx, item)
+                if col_idx == 4:  # coluna "Descrição"
+                    label = QLabel()
+                    label.setTextFormat(Qt.RichText)
+                    label.setWordWrap(True)
+                    label.setText(value.replace('\n', '<br>'))
+                    label.adjustSize()  # força ajustar tamanho interno
+
+                    self.table.setCellWidget(row_idx, col_idx, label)
+
+                    # Ajusta a altura da linha para mostrar todo conteúdo do QLabel
+                    height = label.sizeHint().height()
+                    self.table.setRowHeight(row_idx, max(height, 30))  # mínimo 30 px
+                else:
+                    item = QTableWidgetItem(str(value))
+                    item.setTextAlignment(Qt.AlignLeft | Qt.AlignTop)
+                    item.setFlags(item.flags() ^ Qt.ItemIsEditable)
+                    self.table.setItem(row_idx, col_idx, item)
 
         self.table.resizeColumnsToContents()
+
 
     def export_to_excel(self):
         df = pd.DataFrame(self.protocol_data, columns=["Protocolo", "Título", "Solicitante", "Data Final", "Descrição"])
@@ -219,23 +245,54 @@ class MainWindow(QMainWindow):
             df.to_excel(filename, index=False)
             QMessageBox.information(self, "Sucesso", f"Arquivo salvo como: {filename}")
 
-    def open_analysis_screen(self):
-        self.analysis_window = QWidget()
-        self.analysis_window.setWindowTitle("Análise de Protocolos")
-        self.analysis_window.setMinimumSize(800, 600)
+    def init_analysis_ui(self):
+        self.scroll = QScrollArea()
+        self.scroll.setWidgetResizable(True)
+        self.scroll_content = QWidget()
+        self.scroll_layout = QVBoxLayout(self.scroll_content)
 
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll_content = QWidget()
-        scroll_layout = QVBoxLayout(scroll_content)
+        self.scroll.setWidget(self.scroll_content)
+
+        self.button_back = QPushButton("Voltar")
+        self.button_back.clicked.connect(self.show_table_screen)
+
+        button_layout = QHBoxLayout()
+        buttons = [
+            "Exportar para PDF",
+            "Exportar para Excel (XLSX)",
+            "Analisar histórico de conexão",
+            "Calcular desconto",
+        ]
+        for name in buttons:
+            btn = QPushButton(name)
+            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            button_layout.addWidget(btn)
+        button_layout.addWidget(self.button_back)
+
+        layout = QVBoxLayout()
+        layout.addWidget(self.scroll)
+        layout.addLayout(button_layout)
+
+        self.analysis_container.setLayout(layout)
+
+    def show_analysis_screen(self):
+        for i in reversed(range(self.scroll_layout.count())):
+            widget = self.scroll_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+
+        self.checkboxes = []
 
         for protocol in self.protocol_data:
             box = QWidget()
             box_layout = QVBoxLayout(box)
             box.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
 
-            select_checkbox = QCheckBox(f"Selecionar protocolo {protocol[0]}")
-            box_layout.addWidget(select_checkbox)
+            checkbox = QCheckBox(f"Selecionar protocolo {protocol[0]}")
+            self.checkboxes.append((checkbox, box))
+            checkbox.stateChanged.connect(self.toggle_selection_effect)
+
+            box_layout.addWidget(checkbox)
 
             for label, content in zip(["Protocolo", "Título", "Solicitante", "Data Final"], protocol[:4]):
                 box_layout.addWidget(QLabel(f"<b>{label}:</b> {content}"))
@@ -243,36 +300,40 @@ class MainWindow(QMainWindow):
             descricao = QLabel()
             descricao.setTextFormat(Qt.RichText)
             descricao.setWordWrap(True)
-            descricao.setText(f"<b>Descrição:</b> {protocol[4]}")
+            descricao.setText(protocol[4].replace('\n', '<br>'))
 
             box_layout.addWidget(QLabel("<b>Descrição:</b>"))
             box_layout.addWidget(descricao)
 
-            scroll_layout.addWidget(box)
+            self.scroll_layout.addWidget(box)
 
-        scroll.setWidget(scroll_content)
+        self.table_container.setVisible(False)
+        self.analysis_container.setVisible(True)
 
-        button_layout = QHBoxLayout()
-        buttons = ["Exportar para PDF", "Exportar para Excel (XLSX)", "Analisar histórico de conexão", "Calcular desconto", "Voltar"]
-        for name in buttons:
-            btn = QPushButton(name)
-            btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            if name == "Voltar":
-                btn.clicked.connect(self.analysis_window.close)
-            button_layout.addWidget(btn)
+    def show_table_screen(self):
+        self.analysis_container.setVisible(False)
+        self.table_container.setVisible(True)
 
-        main_layout = QVBoxLayout()
-        main_layout.addWidget(scroll)
-        main_layout.addLayout(button_layout)
+    def toggle_selection_effect(self, state):
+        # Só um exemplo de efeito visual quando seleciona protocolo
+        checkbox = self.sender()
+        for cb, widget in self.checkboxes:
+            if cb is checkbox:
+                if state == Qt.Checked:
+                    widget.setStyleSheet("background-color: #d0f0c0; border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
+                else:
+                    widget.setStyleSheet("border: 1px solid gray; padding: 10px; margin: 5px; border-radius: 5px;")
 
-        self.analysis_window.setLayout(main_layout)
-        self.analysis_window.show()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    login_dialog = LoginDialog()
-    if login_dialog.exec():
-        usuario, senha = login_dialog.get_credentials()
+
+    login = LoginDialog()
+    if login.exec() == QDialog.Accepted:
+        usuario, senha = login.get_credentials()
         window = MainWindow(usuario, senha)
         window.show()
         sys.exit(app.exec())
+    else:
+        print("Login cancelado pelo usuário.")
+        sys.exit()
